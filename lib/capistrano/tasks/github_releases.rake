@@ -1,6 +1,7 @@
 require 'octokit'
 require 'dotenv'
 require 'highline'
+require 'byebug'
 
 Dotenv.load
 
@@ -27,17 +28,7 @@ namespace :github do
     }
 
     set :release_title, -> {
-      default_title = nil
-
-      run_locally do
-        begin
-          pull_request = Octokit.pull(fetch(:github_repo), fetch(:pull_request_id))
-          default_title = pull_request.title
-        rescue => e
-          error e.message
-          default_title = fetch(:release_tag)
-        end
-      end
+      default_title = fetch(:release_tag)
 
       if fetch(:ask_release)
         title = HighLine.new.ask("Release Title? [default: #{default_title}]")
@@ -50,8 +41,7 @@ namespace :github do
 
     set :release_body, -> {
       default_body = <<-MD.gsub(/^ {6}/, '').strip
-        released at #{fetch(:released_at).strftime('%Y-%m-%d %H:%M:%S %z')}
-        pull request: #{fetch(:github_repo)}##{fetch(:pull_request_id)}
+        #{fetch(:changelog)}
       MD
 
       if fetch(:ask_release)
@@ -62,24 +52,29 @@ namespace :github do
       end
     }
 
-    set :pull_request_id, -> {
-      id = nil
-
-      run_locally do
-        merge_comment = capture "git log | grep 'Merge pull request' | head -n 1"
-        id = merge_comment.match(/#(\d+)/)[1].to_i
-      end
-
-      id
-    }
 
     set :release_comment, -> {
-      url = "#{fetch(:github_releases_path)}/#{fetch(:release_tag)}"
+     url = "#{fetch(:github_releases_path)}/#{fetch(:release_tag)}"
 
       <<-MD.gsub(/^ {6}/, '').strip
         This change was deployed to production :octocat:
         #{fetch(:release_title)}: [#{fetch(:release_tag)}](#{url})
       MD
+    }
+
+    set :changelog, -> {
+      repo = Octokit.repo(fetch(:github_repo))
+      last_commit = Octokit.client.commits(repo.full_name).first
+      releases = repo.rels[:releases].get.data
+      previous_release = releases[0]
+      comparison = Octokit.client.compare(repo.full_name, previous_release.tag_name, last_commit.sha)
+      url = comparison.html_url
+      msgs = comparison.commits.map{ |c| "+ #{c.commit.message}" }
+      <<-MSG
+        Details: #{url}
+        Released at: #{fetch(:released_at).strftime('%Y-%m-%d %H:%M:%S %z')}      
+        #{msgs.join("\n")}
+      MSG
     }
 
     set :github_token, -> {
@@ -146,10 +141,10 @@ namespace :github do
         begin
           Octokit.add_comment(
             fetch(:github_repo),
-            fetch(:pull_request_id),
+            fetch(:release_tag),
             fetch(:release_comment)
           )
-          info "Comment to #{fetch(:github_repo)}/pull##{fetch(:pull_request_id)} was added"
+          info "Comment to #{fetch(:github_repo)}/#{fetch(:release_tag)} was added"
         rescue => e
           error e.message
         end
@@ -161,7 +156,7 @@ namespace :github do
     desc 'Create tag for new release and push to origin'
     task :create_tag_and_push_origin do
       message = "#{fetch(:release_title)} by #{fetch(:username)}\n"
-      message += "#{fetch(:github_repo)}##{fetch(:pull_request_id)}"
+      message += "#{fetch(:github_repo)}##{fetch(:release_tag)}"
 
       run_locally do
         execute :git, :tag, '-am', "#{message}", "#{fetch(:release_tag)}"
