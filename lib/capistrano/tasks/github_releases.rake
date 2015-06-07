@@ -14,11 +14,55 @@ module Dotenv
   end
 end
 
+module Version
+  # Credit to: https://github.com/gregorym/bump/blob/master/lib/bump.rb
+  BUMPS         = %w(major minor patch pre)
+  PRERELEASE    = ["alpha","beta","rc",nil]
+  OPTIONS       = BUMPS | ["set", "current"]
+  VERSION_REGEX = /(\d+\.\d+\.\d+(?:-(?:#{PRERELEASE.compact.join('|')}))?)/  
+
+  def self.next_version(current, part)
+    current, prerelease = current.split('-')
+    major, minor, patch, *other = current.split('.')
+    case part
+    when "major"
+      major, minor, patch, prerelease = major.succ, 0, 0, nil
+    when "minor"
+      minor, patch, prerelease = minor.succ, 0, nil
+    when "patch"
+      patch = patch.succ
+    when "pre"
+      prerelease.strip! if prerelease.respond_to? :strip
+      prerelease = PRERELEASE[PRERELEASE.index(prerelease).succ % PRERELEASE.length]
+    else
+      raise "unknown part #{part.inspect}"
+    end
+    version = [major, minor, patch, *other].compact.join('.')
+    [version, prerelease].compact.join('-')
+  end
+
+  def self.get(repo)
+    repo = Octokit.repo(repo)
+    releases = repo.rels[:releases].get.data
+    releases[0].tag_name
+  end
+end
+
 namespace :github do
   namespace :releases do
     set :ask_release, false
     set :released_at, -> { Time.now }
     set :release_tag, -> { fetch(:released_at).strftime('%Y%m%d-%H%M%S%z') }
+    set :app_version, -> {
+
+      if version = Version.get(fetch(:github_repo))
+        version = Version.next_version(version,'minor')
+      else
+        version = HighLine.new.ask('Application version?')
+      end     
+      puts "App version: #{version}"
+      version
+    }
 
     set :username, -> {
       username = `git config --get user.name`.strip
@@ -126,10 +170,11 @@ namespace :github do
             draft: false,
             prerelease: false
           )
+
           info "Release as #{fetch(:release_tag)} to #{fetch(:github_repo)} was created"
         rescue => e
           error e.message
-          invoke 'github:git:create_tag_and_push_origin'
+          # invoke 'github:git:create_tag_and_push_origin'
         end
       end
     end
