@@ -1,7 +1,6 @@
 require 'octokit'
 require 'dotenv'
 require 'highline'
-require 'byebug'
 
 Dotenv.load
 
