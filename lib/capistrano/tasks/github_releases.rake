@@ -170,7 +170,7 @@ namespace :github do
             prerelease: false
           )
 
-          info "Release as #{fetch(:release_tag)} to #{fetch(:github_repo)} was created"
+          info "Release #{fetch(:release_tag)} to #{fetch(:github_repo)} was created"
         rescue => e
           error e.message
           # invoke 'github:git:create_tag_and_push_origin'
