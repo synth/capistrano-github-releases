@@ -60,7 +60,6 @@ namespace :github do
       else
         version = HighLine.new.ask('Application version?')
       end     
-      puts "App version: #{version}"
       version
     }
 
